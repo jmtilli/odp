@@ -724,6 +724,16 @@ static int sock_mmsg_recv(pktio_entry_t *pktio_entry, int index ODP_UNUSED,
 	return nb_rx;
 }
 
+static int sock_fd_set(pktio_entry_t *pktio_entry, int index ODP_UNUSED,
+		       fd_set *readfds)
+{
+	pkt_sock_t *pkt_sock = &pktio_entry->s.pkt_sock;
+	const int sockfd = pkt_sock->sockfd;
+
+	FD_SET(sockfd, readfds);
+	return sockfd;
+}
+
 static uint32_t _tx_pkt_to_iovec(odp_packet_t pkt,
 				 struct iovec iovecs[ODP_BUFFER_MAX_SEG])
 {
@@ -899,6 +909,7 @@ const pktio_if_ops_t sock_mmsg_pktio_ops = {
 	.stats = sock_stats,
 	.stats_reset = sock_stats_reset,
 	.recv = sock_mmsg_recv,
+	.fd_set = sock_fd_set,
 	.send = sock_mmsg_send,
 	.mtu_get = sock_mtu_get,
 	.promisc_mode_set = sock_promisc_mode_set,

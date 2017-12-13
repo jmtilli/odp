@@ -25,6 +25,8 @@ extern "C" {
 #include <odp_debug_internal.h>
 #include <odp_packet_io_ring_internal.h>
 
+#include <sys/select.h>
+
 #include <odp_config_internal.h>
 #include <odp/api/hints.h>
 #include <net/if.h>
@@ -199,6 +201,7 @@ typedef struct pktio_if_ops {
 	odp_time_t (*pktin_ts_from_ns)(pktio_entry_t *pktio_entry, uint64_t ns);
 	int (*recv)(pktio_entry_t *entry, int index, odp_packet_t packets[],
 		    int num);
+	int (*fd_set)(pktio_entry_t *entry, int index, fd_set *readfds);
 	int (*send)(pktio_entry_t *entry, int index,
 		    const odp_packet_t packets[], int num);
 	uint32_t (*mtu_get)(pktio_entry_t *pktio_entry);

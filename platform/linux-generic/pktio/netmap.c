@@ -692,6 +692,44 @@ static inline int netmap_recv_desc(pktio_entry_t *pktio_entry,
 	return num_rx;
 }
 
+static int netmap_fd_set(pktio_entry_t *pktio_entry, int index, fd_set *readfds)
+{
+	struct nm_desc *desc;
+	pkt_netmap_t *pkt_nm = &pktio_entry->s.pkt_nm;
+	unsigned first_desc_id = pkt_nm->rx_desc_ring[index].s.first;
+	unsigned last_desc_id = pkt_nm->rx_desc_ring[index].s.last;
+	unsigned desc_id;
+	int num_desc = pkt_nm->rx_desc_ring[index].s.num;
+	int i;
+	int max_fd = 0;
+
+	if (odp_unlikely(pktio_entry->s.state != PKTIO_STATE_STARTED))
+		return 0;
+
+	if (!pkt_nm->lockless_rx)
+		odp_ticketlock_lock(&pkt_nm->rx_desc_ring[index].s.lock);
+
+	desc_id = pkt_nm->rx_desc_ring[index].s.cur;
+
+	for (i = 0; i < num_desc; i++) {
+		if (desc_id > last_desc_id)
+			desc_id = first_desc_id;
+
+		desc = pkt_nm->rx_desc_ring[index].s.desc[desc_id];
+
+		FD_SET(desc->fd, readfds);
+		if (desc->fd > max_fd)
+			max_fd = desc->fd;
+		desc_id++;
+	}
+	pkt_nm->rx_desc_ring[index].s.cur = desc_id;
+
+	if (!pkt_nm->lockless_rx)
+		odp_ticketlock_unlock(&pkt_nm->rx_desc_ring[index].s.lock);
+
+	return max_fd;
+}
+
 static int netmap_recv(pktio_entry_t *pktio_entry, int index,
 		       odp_packet_t pkt_table[], int num)
 {
@@ -931,7 +969,8 @@ const pktio_if_ops_t netmap_pktio_ops = {
 	.input_queues_config = netmap_input_queues_config,
 	.output_queues_config = netmap_output_queues_config,
 	.recv = netmap_recv,
-	.send = netmap_send
+	.send = netmap_send,
+	.fd_set = netmap_fd_set
 };
 
 #endif /* ODP_NETMAP */

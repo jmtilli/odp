@@ -1547,9 +1547,31 @@ int odp_pktin_recv_tmo(odp_pktin_queue_t queue, odp_packet_t packets[], int num,
 	odp_time_t t1, t2;
 	struct timespec ts;
 	int started = 0;
+	pktio_entry_t *entry;
+	fd_set storefds;
+	fd_set readfds;
+	struct timeval storetimeout;
+	struct timeval timeout;
+	int maxfd = -1;
 
 	ts.tv_sec  = 0;
 	ts.tv_nsec = SLEEP_NSEC;
+
+	entry = get_pktio_entry(queue.pktio);
+	if (entry == NULL) {
+		ODP_DBG("pktio entry %d does not exist\n", queue.pktio);
+		return -1;
+	}
+
+	if (entry->s.ops->fd_set) {
+		uint64_t usecs = (wait * SLEEP_NSEC + 999) / 1000;
+
+		storetimeout.tv_sec = usecs / 1000 / 1000;
+		storetimeout.tv_usec = usecs % (1000 * 1000);
+		FD_ZERO(&storefds);
+		maxfd = entry->s.ops->fd_set(
+			entry, queue.index, &storefds);
+	}
 
 	while (1) {
 		ret = odp_pktin_recv(queue, packets, num);
@@ -1559,6 +1581,16 @@ int odp_pktin_recv_tmo(odp_pktin_queue_t queue, odp_packet_t packets[], int num,
 
 		if (wait == 0)
 			return 0;
+
+		if (maxfd != -1) {
+			if (maxfd == -2)
+				return 0;
+			timeout = storetimeout;
+			readfds = storefds;
+			select(maxfd + 1, &readfds, NULL, NULL, &timeout);
+			maxfd = -2; /* prevent another select() */
+			continue;
+		}
 
 		if (wait != ODP_PKTIN_WAIT) {
 			/* Avoid unnecessary system calls. Record the start time
@@ -1596,6 +1628,40 @@ int odp_pktin_recv_mq_tmo(const odp_pktin_queue_t queues[], unsigned num_q,
 	odp_time_t t1, t2;
 	struct timespec ts;
 	int started = 0;
+	pktio_entry_t *entry;
+	fd_set storefds;
+	fd_set readfds;
+	struct timeval storetimeout;
+	struct timeval timeout;
+	int maxfd = -1;
+	uint64_t usecs = (wait * SLEEP_NSEC + 999) / 1000;
+
+	storetimeout.tv_sec = usecs / 1000 / 1000;
+	storetimeout.tv_usec = usecs % (1000 * 1000);
+
+	FD_ZERO(&storefds);
+	for (i = 0; i < num_q; i++) {
+		entry = get_pktio_entry(queues[i].pktio);
+		if (entry == NULL) {
+			ODP_DBG("pktio entry %d does not exist\n",
+				queues[i].pktio);
+			return -1;
+		}
+		if (entry->s.ops->fd_set) {
+			int maxfd2;
+
+			maxfd2 = entry->s.ops->fd_set(
+				entry, queues[i].index, &storefds);
+			if (maxfd2 < 0) {
+				maxfd = -1;
+				break;
+			}
+			if (maxfd2 > maxfd)
+				maxfd = maxfd2;
+		} else {
+			maxfd = -1;
+		}
+	}
 
 	ts.tv_sec  = 0;
 	ts.tv_nsec = SLEEP_NSEC;
@@ -1613,6 +1679,16 @@ int odp_pktin_recv_mq_tmo(const odp_pktin_queue_t queues[], unsigned num_q,
 
 		if (wait == 0)
 			return 0;
+
+		if (maxfd != -1) {
+			if (maxfd == -2)
+				return 0;
+			timeout = storetimeout;
+			readfds = storefds;
+			select(maxfd + 1, &readfds, NULL, NULL, &timeout);
+			maxfd = -2; /* prevent another select() */
+			continue;
+		}
 
 		if (wait != ODP_PKTIN_WAIT) {
 			if (odp_unlikely(!started)) {
